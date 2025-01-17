@@ -1,0 +1,110 @@
+# Importing libraries
+  
+import warnings
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.stats import mode
+from pathlib import Path
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import LabelEncoder
+from sklearn.svm import SVC
+
+# Reading the train.csv by removing the last column since it's an empty column
+home: Path = Path.home()
+TRAIN_DATA_PATH = home.joinpath("Downloads", 'archive', 'Training.csv')
+TEST_DATA_PATH = home.joinpath("Downloads", 'archive', 'Testing.csv')
+data = pd.read_csv(TRAIN_DATA_PATH).dropna(axis=1)
+test_data = pd.read_csv(TEST_DATA_PATH).dropna(axis=1)
+
+# Encoding the target value into numerical value using LabelEncoder
+encoder = LabelEncoder()
+data["prognosis"] = encoder.fit_transform(data["prognosis"])
+
+X = data.iloc[:, :-1]
+y = data.iloc[:, -1]
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=24)
+
+# Initializing Models
+models = {
+    "SVC": SVC(),
+    "Gaussian NB": GaussianNB(),
+    "Random Forest": RandomForestClassifier(random_state=18)
+}
+
+# Producing cross-validation score for the models
+def cv_scoring(estimator, X, y):
+    return accuracy_score(y, estimator.predict(X))
+
+for model_name in models:
+    model = models[model_name]
+    scores = cross_val_score(model, X, y, cv=10,
+                             n_jobs=-1,
+                             scoring=cv_scoring)
+    print("=" * 60)
+    print(model_name)
+    print(f"Scores: {scores}")
+    print(f"Mean Score: {np.mean(scores)}")
+
+# Training the models on the whole data
+final_svm_model = SVC()
+final_nb_model = GaussianNB()
+final_rf_model = RandomForestClassifier(random_state=18)
+final_svm_model.fit(X, y)
+final_nb_model.fit(X, y)
+final_rf_model.fit(X, y)
+
+# Reading the test data
+test_X = test_data.iloc[:, :-1]
+test_Y = encoder.transform(test_data.iloc[:, -1])
+
+# Creating a symptom index dictionary to encode the input symptoms into numerical form
+symptom_index = {}
+for index, value in enumerate(X.columns):
+    symptom_index[value] = index
+
+data_dict = {
+    "symptom_index": symptom_index,
+    "predictions_classes": encoder.classes_
+}
+
+
+# Defining the Function
+# Input: string containing symptoms separated by commas
+# Output: Generated predictions by models
+def predictDisease(symptoms):
+    symptoms = symptoms.split(",")
+
+    # creating input data for the models
+    input_data = [0] * len(data_dict["symptom_index"])
+    for symptom in symptoms:
+        if symptom in data_dict["symptom_index"]:
+            index = data_dict["symptom_index"][symptom]
+            input_data[index] = 1
+        else:
+            print(f"Warning: Symptom '{symptom}' not found in training data.")
+
+    # reshaping the input data and converting it into suitable format for model predictions
+    input_data = np.array(input_data).reshape(1, -1)
+
+    # generating individual outputs
+    rf_prediction = data_dict["predictions_classes"][final_rf_model.predict(input_data)[0]]
+    nb_prediction = data_dict["predictions_classes"][final_nb_model.predict(input_data)[0]]
+    svm_prediction = data_dict["predictions_classes"][final_svm_model.predict(input_data)[0]]
+
+    # making final prediction by taking mode of all predictions
+    final_prediction = mode([rf_prediction, nb_prediction, svm_prediction])[0][0]
+    predictions = {
+        "rf_model_prediction": rf_prediction,
+        "naive_bayes_prediction": nb_prediction,
+        "svm_model_prediction": svm_prediction,
+        "final_prediction": final_prediction
+    }
+    return predictions
+
+# Testing the function
+print(predictDisease("Itching,Skin Rash,Nodal Skin Eruptions"))
